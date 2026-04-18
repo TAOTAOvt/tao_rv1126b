@@ -44,25 +44,25 @@
 static SrcCfg_t SrcCfg_tab[] = {
     {
         .loaction  = "/dev/video12",
-        .videoDesc = {"NV12", FALSE, 640, 480, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     },
 
     {
         .loaction  = "/dev/video13",
-        .videoDesc = {"NV12", FALSE, 640, 480, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     },
     
     {
         .loaction  = "/dev/video14",
-        .videoDesc = {"NV12", FALSE, 640, 480, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     },
 
     {
         .loaction  = "/dev/video15",
-        .videoDesc = {"NV12", FALSE, 640, 480, 30, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 30, 0, "h264"},
         .audioDstType = "null",
     }
 };

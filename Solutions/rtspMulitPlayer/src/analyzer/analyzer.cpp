@@ -164,6 +164,7 @@ static void *imgAnalyze_thread(void *para)
     
     pthread_exit(NULL);
 }
+
 static void *imgDisplay_thread(void *para)
 {
     Analyzer *pSelf = (Analyzer *)para;
@@ -172,53 +173,128 @@ static void *imgDisplay_thread(void *para)
     disp_init(&screenW, &screenH);
     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
 
-    Mat noSignal_img = imread("./noSignal.jpg", 1);
+    const int outW = 1280;
+    const int outH = 800;
+    const int cellW = outW / 2;
+    const int cellH = outH / 2;
 
-    int outW = 1280, outH = 800;
-    int cellW = outW / 2;  // 640
-    int cellH = outH / 2;  // 400
+    cv::Mat canvas(outH, outW, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::Mat noSignal_img = cv::imread("./noSignal.jpg", 1);
+    cv::Mat noSignal_cell;
 
-    Mat canvas(outH, outW, CV_8UC3);
+    if (!noSignal_img.empty()) {
+        cv::resize(noSignal_img, noSignal_cell, cv::Size(cellW, cellH));
+    } else {
+        noSignal_cell = cv::Mat(cellH, cellW, CV_8UC3, cv::Scalar(0, 0, 0));
+    }
 
     pSelf->mDisplayThreadWorking = true;
-    while(1){
-        if(!pSelf->mDisplayThreadWorking){ msleep(5); break; }
 
-        canvas.setTo(Scalar(0, 0, 0));
+    while (1) {
+        if (!pSelf->mDisplayThreadWorking) {
+            msleep(5);
+            break;
+        }
 
-        for(int i = 0; i < pSelf->mMaxChnNum && i < 4; i++){
+        for (int i = 0; i < pSelf->mMaxChnNum && i < 4; i++) {
             int x = (i % 2) * cellW;
             int y = (i / 2) * cellH;
-            Mat cell = canvas(Rect(x, y, cellW, cellH));
+            cv::Mat cell = canvas(cv::Rect(x, y, cellW, cellH));
 
             vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-            if(pVideoObj){
+            bool drawn = false;
+
+            if (pVideoObj) {
                 pthread_rwlock_rdlock(&pVideoObj->imgLock);
-                if(!pVideoObj->image.empty()){
-                    // ✅ OpenCV resize — không bị stride bug
-                    cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH));
+
+                if (!pVideoObj->image.empty()) {
+                    if (pVideoObj->image.cols == cellW && pVideoObj->image.rows == cellH) {
+                        pVideoObj->image.copyTo(cell);
+                    } else {
+                        cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH), 0, 0, cv::INTER_LINEAR);
+                    }
+
                     char txt[16];
                     snprintf(txt, sizeof(txt), "CH%d", i);
                     cv::putText(cell, txt, cv::Point(20, 40),
-                                FONT_HERSHEY_SIMPLEX, 1.0,
+                                cv::FONT_HERSHEY_SIMPLEX, 1.0,
                                 cv::Scalar(0, 255, 255), 2);
-                } else if(!noSignal_img.empty()){
-                    cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
+                    drawn = true;
                 }
+
                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-            } else {
-                if(!noSignal_img.empty())
-                    cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
+            }
+
+            if (!drawn) {
+                noSignal_cell.copyTo(cell);
             }
         }
 
         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
-        msleep(15);
+
+        // 15ms ~ 66fps -> quá dày
+        msleep(33);   // ~30fps
+        // cần giảm tiếp thì msleep(50); // ~20fps
     }
 
     disp_exit();
     pthread_exit(NULL);
 }
+// static void *imgDisplay_thread(void *para)
+// {
+//     Analyzer *pSelf = (Analyzer *)para;
+
+//     int screenW, screenH;
+//     disp_init(&screenW, &screenH);
+//     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
+
+//     Mat noSignal_img = imread("./noSignal.jpg", 1);
+
+//     int outW = 1280, outH = 800;
+//     int cellW = outW / 2;  // 640
+//     int cellH = outH / 2;  // 400
+
+//     Mat canvas(outH, outW, CV_8UC3);
+
+//     pSelf->mDisplayThreadWorking = true;
+//     while(1){
+//         if(!pSelf->mDisplayThreadWorking){ msleep(5); break; }
+
+//         canvas.setTo(Scalar(0, 0, 0));
+
+//         for(int i = 0; i < pSelf->mMaxChnNum && i < 4; i++){
+//             int x = (i % 2) * cellW;
+//             int y = (i / 2) * cellH;
+//             Mat cell = canvas(Rect(x, y, cellW, cellH));
+
+//             vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
+//             if(pVideoObj){
+//                 pthread_rwlock_rdlock(&pVideoObj->imgLock);
+//                 if(!pVideoObj->image.empty()){
+//                     // ✅ OpenCV resize — không bị stride bug
+//                     cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH));
+//                     char txt[16];
+//                     snprintf(txt, sizeof(txt), "CH%d", i);
+//                     cv::putText(cell, txt, cv::Point(20, 40),
+//                                 FONT_HERSHEY_SIMPLEX, 1.0,
+//                                 cv::Scalar(0, 255, 255), 2);
+//                 } else if(!noSignal_img.empty()){
+//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
+//                 }
+//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
+//             } else {
+//                 if(!noSignal_img.empty())
+//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
+//             }
+//         }
+
+//         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
+//         msleep(15);
+//     }
+
+//     disp_exit();
+//     pthread_exit(NULL);
+// }
 // static void *imgDisplay_thread(void *para)
 // {
 //     Analyzer *pSelf = (Analyzer *)para;

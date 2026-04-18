@@ -42,32 +42,59 @@ static int plot_one_box(Mat src, int x1, int x2, int y1, int y2, char *label, ch
     putText(src, label, cv::Point(x1, y1 - 2), FONT_HERSHEY_SIMPLEX, (float)tl/3, cv::Scalar(255, 255, 255, 255), tf, 8);
     return 0;
 }
-static void paint_algorithm_result(Mat image, ChnResult_t result)
+
+static void paint_algorithm_result_scaled(Mat image, ChnResult_t result, float scaleX, float scaleY)
 {
-    // 把算法结果绘制在图像上
     char text[256];
-    for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++){
+    for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++) {
         for (int j = 0; j < result.algoRes[algoIndex].resNumber; j++) {
-            detect_result_t *det_result = &(result.algoRes[algoIndex].detect_Group.results[j]);
-            if( det_result->prop < 0.4) {
+            detect_result_t *det = &(result.algoRes[algoIndex].detect_Group.results[j]);
+            if (det->prop < 0.4)
                 continue;
-            }
-            
-            // 标出识别目标框
-            sprintf(text, "%s %.1f%%", det_result->name, det_result->prop * 100);
-#if 0
-            printf("%s @ (%d %d %d %d) %f\n", det_result->name, det_result->box.left, det_result->box.top,
-                   det_result->box.right, det_result->box.bottom, det_result->prop);
-#endif
-            int x1 = det_result->box.left;
-            int y1 = det_result->box.top;
-            int x2 = det_result->box.right;
-            int y2 = det_result->box.bottom;
-            // 标出识别目标定位标记
-            plot_one_box(image, x1, x2, y1, y2, text, j%10);
+
+            // Scale tọa độ bbox theo tỉ lệ resize
+            int x1 = (int)(det->box.left   * scaleX);
+            int y1 = (int)(det->box.top    * scaleY);
+            int x2 = (int)(det->box.right  * scaleX);
+            int y2 = (int)(det->box.bottom * scaleY);
+
+            // Clamp trong bounds của cell
+            x1 = std::max(0, std::min(x1, image.cols - 1));
+            y1 = std::max(0, std::min(y1, image.rows - 1));
+            x2 = std::max(0, std::min(x2, image.cols - 1));
+            y2 = std::max(0, std::min(y2, image.rows - 1));
+
+            sprintf(text, "%s %.1f%%", det->name, det->prop * 100);
+            plot_one_box(image, x1, x2, y1, y2, text, j % 10);
         }
     }
 }
+// static void paint_algorithm_result(Mat image, ChnResult_t result)
+// {
+//     // 把算法结果绘制在图像上
+//     char text[256];
+//     for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++){
+//         for (int j = 0; j < result.algoRes[algoIndex].resNumber; j++) {
+//             detect_result_t *det_result = &(result.algoRes[algoIndex].detect_Group.results[j]);
+//             if( det_result->prop < 0.4) {
+//                 continue;
+//             }
+            
+//             // 标出识别目标框
+//             sprintf(text, "%s %.1f%%", det_result->name, det_result->prop * 100);
+// #if 0
+//             printf("%s @ (%d %d %d %d) %f\n", det_result->name, det_result->box.left, det_result->box.top,
+//                    det_result->box.right, det_result->box.bottom, det_result->prop);
+// #endif
+//             int x1 = det_result->box.left;
+//             int y1 = det_result->box.top;
+//             int x2 = det_result->box.right;
+//             int y2 = det_result->box.bottom;
+//             // 标出识别目标定位标记
+//             plot_one_box(image, x1, x2, y1, y2, text, j%10);
+//         }
+//     }
+// }
 
 
 class Analyzer
@@ -197,34 +224,46 @@ static void *imgDisplay_thread(void *para)
         }
 
         for (int i = 0; i < pSelf->mMaxChnNum && i < 4; i++) {
-            int x = (i % 2) * cellW;
-            int y = (i / 2) * cellH;
-            cv::Mat cell = canvas(cv::Rect(x, y, cellW, cellH));
+        int x = (i % 2) * cellW;
+        int y = (i / 2) * cellH;
+        cv::Mat cell = canvas(cv::Rect(x, y, cellW, cellH));
 
-            vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-            bool drawn = false;
+        vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
+        bool drawn = false;
 
-            if (pVideoObj) {
-                pthread_rwlock_rdlock(&pVideoObj->imgLock);
+        if (pVideoObj) {
+            pthread_rwlock_rdlock(&pVideoObj->imgLock);
 
-                if (!pVideoObj->image.empty()) {
-                    if (pVideoObj->image.cols == cellW && pVideoObj->image.rows == cellH) {
-                        pVideoObj->image.copyTo(cell);
-                    } else {
-                        cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH), 0, 0, cv::INTER_LINEAR);
-                    }
+            if (!pVideoObj->image.empty()) {
+                // Lưu size gốc trước khi resize (để tính scale)
+                float scaleX = (float)cellW / pVideoObj->image.cols;
+                float scaleY = (float)cellH / pVideoObj->image.rows;
 
-                    char txt[16];
-                    snprintf(txt, sizeof(txt), "CH%d", i);
-                    cv::putText(cell, txt, cv::Point(20, 40),
-                                cv::FONT_HERSHEY_SIMPLEX, 1.0,
-                                cv::Scalar(0, 255, 255), 2);
-                    drawn = true;
+                if (pVideoObj->image.cols == cellW && pVideoObj->image.rows == cellH) {
+                    pVideoObj->image.copyTo(cell);
+                } else {
+                    cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH), 0, 0, cv::INTER_LINEAR);
                 }
 
+                // Copy result trong lock
+                ChnResult_t result;
+                memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
+
+                pthread_rwlock_unlock(&pVideoObj->imgLock);
+
+                // Vẽ BBox sau khi unlock (không block capture thread)
+                paint_algorithm_result_scaled(cell, result, scaleX, scaleY);
+
+                char txt[16];
+                snprintf(txt, sizeof(txt), "CH%d", i);
+                cv::putText(cell, txt, cv::Point(20, 40),
+                            cv::FONT_HERSHEY_SIMPLEX, 1.0,
+                            cv::Scalar(0, 255, 255), 2);
+                drawn = true;
+            } else {
                 pthread_rwlock_unlock(&pVideoObj->imgLock);
             }
-
+        }
             if (!drawn) {
                 noSignal_cell.copyTo(cell);
             }

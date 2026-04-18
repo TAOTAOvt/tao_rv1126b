@@ -7,11 +7,8 @@
 #include <opencv2/opencv.hpp>
 
 #include "person_detect.h"
-
 using namespace cv;
-
 #define ALGOMAXNUM 1
-
 typedef struct{
     int resNumber;
 	detect_result_group_t detect_Group;    

@@ -16,7 +16,7 @@ static rknn_context gPersonCtx;
 // 	person_detect_init(&gPersonCtx, "person_detect.model");
 
 
-//     g_Algorithm_is_NotReady = false;
+//     g_Algorithm_is_NotReadya = false;
 //     return 0;
 // }
 
@@ -32,6 +32,7 @@ int algorithm_init()
     printf("model loaded ok\n");
     return 0;
 }
+
 
 ChnResult_t algorithm_process(int chnId, Mat image)
 {

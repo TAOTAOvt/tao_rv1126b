@@ -8,7 +8,7 @@
 #include "log_manager.h"
 #include "rga_wrapper.h"
 #include "display.h"
-
+#include "../zone_overlay.h"
 #include "analyzer.h"
 
 using namespace cv;
@@ -205,6 +205,12 @@ static void *imgDisplay_thread(void *para)
     const int cellW = outW / 2;
     const int cellH = outH / 2;
 
+    float zoneScaleX = (float)cellW / 1280.0f;
+    float zoneScaleY = (float)cellH / 720.0f;
+    zone_load_config("./zones.json",
+                    cellW, cellH,
+                    zoneScaleX, zoneScaleY);
+
     cv::Mat canvas(outH, outW, CV_8UC3, cv::Scalar(0, 0, 0));
     cv::Mat noSignal_img = cv::imread("./noSignal.jpg", 1);
     cv::Mat noSignal_cell;
@@ -254,6 +260,8 @@ static void *imgDisplay_thread(void *para)
                 // Vẽ BBox sau khi unlock (không block capture thread)
                 paint_algorithm_result_scaled(cell, result, scaleX, scaleY);
 
+                zone_apply_overlay(cell, i);
+
                 char txt[16];
                 snprintf(txt, sizeof(txt), "CH%d", i);
                 cv::putText(cell, txt, cv::Point(20, 40),
@@ -279,318 +287,6 @@ static void *imgDisplay_thread(void *para)
     disp_exit();
     pthread_exit(NULL);
 }
-// static void *imgDisplay_thread(void *para)
-// {
-//     Analyzer *pSelf = (Analyzer *)para;
-
-//     int screenW, screenH;
-//     disp_init(&screenW, &screenH);
-//     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
-
-//     Mat noSignal_img = imread("./noSignal.jpg", 1);
-
-//     int outW = 1280, outH = 800;
-//     int cellW = outW / 2;  // 640
-//     int cellH = outH / 2;  // 400
-
-//     Mat canvas(outH, outW, CV_8UC3);
-
-//     pSelf->mDisplayThreadWorking = true;
-//     while(1){
-//         if(!pSelf->mDisplayThreadWorking){ msleep(5); break; }
-
-//         canvas.setTo(Scalar(0, 0, 0));
-
-//         for(int i = 0; i < pSelf->mMaxChnNum && i < 4; i++){
-//             int x = (i % 2) * cellW;
-//             int y = (i / 2) * cellH;
-//             Mat cell = canvas(Rect(x, y, cellW, cellH));
-
-//             vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-//             if(pVideoObj){
-//                 pthread_rwlock_rdlock(&pVideoObj->imgLock);
-//                 if(!pVideoObj->image.empty()){
-//                     // ✅ OpenCV resize — không bị stride bug
-//                     cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH));
-//                     char txt[16];
-//                     snprintf(txt, sizeof(txt), "CH%d", i);
-//                     cv::putText(cell, txt, cv::Point(20, 40),
-//                                 FONT_HERSHEY_SIMPLEX, 1.0,
-//                                 cv::Scalar(0, 255, 255), 2);
-//                 } else if(!noSignal_img.empty()){
-//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
-//                 }
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-//             } else {
-//                 if(!noSignal_img.empty())
-//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
-//             }
-//         }
-
-//         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
-//         msleep(15);
-//     }
-
-//     disp_exit();
-//     pthread_exit(NULL);
-// }
-// static void *imgDisplay_thread(void *para)
-// {
-//     Analyzer *pSelf = (Analyzer *)para;
-
-//     int screenW, screenH;
-//     disp_init(&screenW, &screenH);
-//     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
-
-//     Mat noSignal_img = imread("./noSignal.jpg", 1);
-
-//     // Dùng canvas landscape 1280x800
-//     int outW = 1280;
-//     int outH = 800;
-
-//     int cellW = outW / 2;   // 640
-//     int cellH = outH / 2;   // 400
-
-//     Mat canvas(outH, outW, CV_8UC3);
-
-//     pSelf->mDisplayThreadWorking = true;
-//     while(1){
-//         if(!pSelf->mDisplayThreadWorking){
-//             msleep(5);
-//             break;
-//         }
-
-//         canvas.setTo(Scalar(0, 0, 0));
-
-//         for(int i = 0; i < pSelf->mMaxChnNum && i < 4; i++){
-//             int x = (i % 2) * cellW;
-//             int y = (i / 2) * cellH;
-
-//             Mat cell = canvas(Rect(x, y, cellW, cellH));
-//             vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-
-//             if(pVideoObj){
-//                 pthread_rwlock_rdlock(&pVideoObj->imgLock);
-
-//                 if(!pVideoObj->image.empty()){
-//                     Image srcImg, dstImg;
-//                     memset(&srcImg, 0, sizeof(srcImg));
-//                     memset(&dstImg, 0, sizeof(dstImg));
-
-//                     srcImg.fmt = RK_FORMAT_BGR_888;
-//                     srcImg.width = pVideoObj->image.cols;
-//                     srcImg.height = pVideoObj->image.rows;
-//                     srcImg.hor_stride = pVideoObj->image.cols;
-//                     srcImg.ver_stride = pVideoObj->image.rows;
-//                     srcImg.rotation = HAL_TRANSFORM_ROT_0;
-//                     srcImg.pBuf = (void *)pVideoObj->image.data;
-
-//                     dstImg.fmt = RK_FORMAT_BGR_888;
-//                     dstImg.width = cellW;
-//                     dstImg.height = cellH;
-//                     dstImg.hor_stride = cellW;
-//                     dstImg.ver_stride = cellH;
-//                     dstImg.rotation = HAL_TRANSFORM_ROT_0;
-//                     dstImg.pBuf = (void *)cell.data;
-
-//                     srcImg_ConvertTo_dstImg(&dstImg, &srcImg);
-
-//                     char txt[16];
-//                     snprintf(txt, sizeof(txt), "CH%d", i);
-//                     cv::putText(cell, txt, cv::Point(20, 40),
-//                                 FONT_HERSHEY_SIMPLEX, 1.0,
-//                                 cv::Scalar(0, 255, 255), 2);
-//                 } else if(!noSignal_img.empty()) {
-//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
-//                 }
-
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-//             } else {
-//                 if(!noSignal_img.empty()){
-//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
-//                 }
-//             }
-//         }
-
-//         // Quan trọng: dùng ROT_270 như code gốc
-//         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
-//         msleep(15);
-//     }
-
-//     disp_exit();
-//     pthread_exit(NULL);
-// }
-
-
-// static void *imgDisplay_thread(void *para)
-// {
-//     Analyzer *pSelf = (Analyzer *)para;
-
-//     int screenW, screenH;
-//     disp_init(&screenW, &screenH);
-
-//     Mat noSignal_img = imread("./noSignal.jpg", 1);
-
-//     // Với màn 1280x800 -> mỗi ô 640x400
-//     int cellW = screenW / 2;
-//     int cellH = screenH / 2;
-
-//     Mat canvas(screenH, screenW, CV_8UC3);
-
-//     pSelf->mDisplayThreadWorking = true;
-//     while (1) {
-//         if (!pSelf->mDisplayThreadWorking) {
-//             msleep(5);
-//             break;
-//         }
-
-//         if (pSelf == NULL) {
-//             msleep(5);
-//             break;
-//         }
-
-//         // Xóa canvas mỗi frame
-//         canvas.setTo(Scalar(0, 0, 0));
-
-//         for (int i = 0; i < pSelf->mMaxChnNum && i < 4; i++) {
-//             int x = (i % 2) * cellW;
-//             int y = (i / 2) * cellH;
-
-//             Mat cell = canvas(Rect(x, y, cellW, cellH));
-
-//             vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-//             if (pVideoObj && !pVideoObj->image.empty()) {
-//                 Image srcImg, dstImg;
-//                 memset(&srcImg, 0, sizeof(srcImg));
-//                 memset(&dstImg, 0, sizeof(dstImg));
-
-//                 pthread_rwlock_rdlock(&pVideoObj->imgLock);
-
-//                 srcImg.fmt = RK_FORMAT_BGR_888;
-//                 srcImg.width = pVideoObj->image.cols;
-//                 srcImg.height = pVideoObj->image.rows;
-//                 srcImg.hor_stride = pVideoObj->image.cols;
-//                 srcImg.ver_stride = pVideoObj->image.rows;
-//                 srcImg.rotation = HAL_TRANSFORM_ROT_0;
-//                 srcImg.pBuf = (void *)pVideoObj->image.data;
-
-//                 dstImg.fmt = RK_FORMAT_BGR_888;
-//                 dstImg.width = cellW;
-//                 dstImg.height = cellH;
-//                 dstImg.hor_stride = cellW;
-//                 dstImg.ver_stride = cellH;
-//                 dstImg.rotation = HAL_TRANSFORM_ROT_0;
-//                 dstImg.pBuf = (void *)cell.data;
-
-//                 srcImg_ConvertTo_dstImg(&dstImg, &srcImg);
-
-//                 // nếu muốn vẽ bbox từng cam thì bật đoạn này
-//                 ChnResult_t result;
-//                 memset(&result, 0, sizeof(ChnResult_t));
-//                 memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
-
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-
-//                 paint_algorithm_result(cell, result);
-//             } else {
-//                 if (!noSignal_img.empty()) {
-//                     cv::resize(noSignal_img, cell, cv::Size(cellW, cellH));
-//                 } else {
-//                     cell.setTo(Scalar(32, 32, 32));
-//                 }
-//             }
-//         }
-
-//         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_0);
-//         msleep(15);
-//     }
-
-//     disp_exit();
-//     pthread_exit(NULL);
-// }
-
-// static void *imgDisplay_thread(void *para)
-// {
-//     Analyzer *pSelf = (Analyzer *)para;
-
-//     int width, height;
-//     disp_init(&width, &height);
-//     // --无信号通道显示内容
-//     bool bShowNoSig = true;
-//     Mat noSignal_img = imread("./noSignal.jpg", 1);
-//     // --有信号通道显示设置
-//     int videoDuration = 30;//秒
-//     int preTimeStamp = get_timeval_ms();
-//     int curTimeStamp = preTimeStamp;
-    
-//     int chnId = 0;
-//     Mat image = Mat(1080/*height*/, 1920/*width*/, CV_8UC3);
-//     ChnResult_t result;
-//     pSelf->mDisplayThreadWorking = true;
-//     while(1){
-//         if(!pSelf->mDisplayThreadWorking){
-//             msleep(5);
-//             break;
-//         }
-        
-//         if(NULL == pSelf){
-//             msleep(5);
-//             break;
-//         }
-
-//         // 每隔videoDuration秒切换一次通道
-//         curTimeStamp = get_timeval_ms();
-//         if(videoDuration*1000 <= (curTimeStamp-preTimeStamp)){
-//             chnId++;
-//             chnId%=pSelf->mMaxChnNum;
-
-//             preTimeStamp = curTimeStamp;
-//         }
-        
-//         vChnObject *pVideoObj = pSelf->getVideoChnObject(chnId);
-//         if(pVideoObj){
-//             Image srcImage, dstImage;
-//             memset(&srcImage, 0, sizeof(srcImage));
-//             memset(&dstImage, 0, sizeof(dstImage));
-//             srcImage.fmt = RK_FORMAT_BGR_888;
-//             srcImage.width = pVideoObj->image.cols;
-//             srcImage.height = pVideoObj->image.rows;
-//             srcImage.hor_stride = pVideoObj->image.cols;
-//             srcImage.ver_stride = pVideoObj->image.rows;
-//             srcImage.rotation = HAL_TRANSFORM_ROT_0;
-//             srcImage.pBuf = (void *)pVideoObj->image.data;
-//             dstImage.fmt = RK_FORMAT_BGR_888;
-//             dstImage.width = image.cols;
-//             dstImage.height = image.rows;
-//             dstImage.hor_stride = image.cols;
-//             dstImage.ver_stride = image.rows;
-//             dstImage.rotation = HAL_TRANSFORM_ROT_0;
-//             dstImage.pBuf = (void *)image.data;
-//             pthread_rwlock_rdlock(&pVideoObj->imgLock);
-//             // 用rga快速复制一份待显示图像
-//             srcImg_ConvertTo_dstImg(&dstImage, &srcImage);
-//             // 提取分析结果
-//             memset(&result, 0, sizeof(ChnResult_t));
-//             memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
-//             pthread_rwlock_unlock(&pVideoObj->imgLock);
-            
-//             // 绘制分析结果到待显示图像
-//             paint_algorithm_result(image, result);
-
-//             disp_commit(image.data, image.cols, image.rows, HAL_TRANSFORM_ROT_270);
-//             bShowNoSig = true;
-            
-//         }else if(bShowNoSig){
-//             disp_commit(noSignal_img.data, noSignal_img.cols, noSignal_img.rows, HAL_TRANSFORM_ROT_270);
-//             bShowNoSig = false;
-//         }
-        
-//         msleep(15);
-//     }
-
-//     disp_exit();
-//     pthread_exit(NULL);
-// }
 
 Analyzer *Analyzer::m_pSelf = NULL;
 Analyzer::Analyzer(int32_t maxChn) :

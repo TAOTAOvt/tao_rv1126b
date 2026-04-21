@@ -42,13 +42,12 @@ ChnResult_t algorithm_process(int chnId, Mat image)
     int resultNum = 0;
     detect_result_group_t detect_result_group = {0};
 
-    // 模型未加载完成，不进行目标检测等操作
     if(g_Algorithm_is_NotReady){
 		usleep(1000);
 		return chnResult;
     }
-    // 目标检测正式开始:
-    // ==========================================================================================
+    
+        // ==========================================================================================
 	ret = person_detect_run(gPersonCtx, image, &detect_result_group);
     if(0 != ret){
 		usleep(1000);

@@ -1,0 +1,24 @@
+{
+  "cameras": [
+    {
+      "chnId": 0,
+      "zones": [
+        {
+          "id": 1, "label": "NGUY HIEM", "level": "red",
+          "points": [[100,100],[500,100],[500,400],[100,400]]
+        },
+        {
+          "id": 2, "label": "CANH BAO", "level": "yellow",
+          "points": [[600,200],[900,200],[900,500],[600,500]]
+        },
+        {
+          "id": 3, "label": "AN TOAN", "level": "green",
+          "points": [[50,500],[400,500],[400,680],[50,680]]
+        }
+      ]
+    },
+    { "chnId": 1, "zones": [] },
+    { "chnId": 2, "zones": [] },
+    { "chnId": 3, "zones": [] }
+  ]
+}

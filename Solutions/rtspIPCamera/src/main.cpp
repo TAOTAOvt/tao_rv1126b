@@ -29,40 +29,28 @@
 #define ATTACH_URL          "/test"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-// static SrcCfg_t SrcCfg_tab[] = {
-// 	{
-// 		.loaction  = "/dev/video23",
-// 		.videoDesc = {"NV12", FALSE, 1920, 1080, 30, 0, "h264"},
-// 		.audioDstType = "null",
-
-// 	}, {
-// 		.loaction  = "/dev/video31",
-// 		.videoDesc = {"NV12", FALSE, 1920, 1080, 30, 0, "h264"},
-// 		.audioDstType = "null",
-//     }
-// };
 static SrcCfg_t SrcCfg_tab[] = {
     {
         .loaction  = "/dev/video12",
-        .videoDesc = {"NV12", FALSE, 1980, 1080, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     },
 
     {
         .loaction  = "/dev/video13",
-        .videoDesc = {"NV12", FALSE, 1920, 1080, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     },
     
     {
         .loaction  = "/dev/video14",
-        .videoDesc = {"NV12", FALSE, 1920, 1080, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     },
 
     {
         .loaction  = "/dev/video15",
-        .videoDesc = {"NV12", FALSE, 1920, 1080, 15, 0, "h264"},
+        .videoDesc = {"NV12", FALSE, 1280, 720, 15, 0, "h264"},
         .audioDstType = "null",
     }
 };

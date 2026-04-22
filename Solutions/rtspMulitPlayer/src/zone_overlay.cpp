@@ -97,9 +97,23 @@ int zone_load_config(const char *jsonPath,
             zone.label = getVal(zobj, "label");
 
             // level
+            // std::string lvl = getVal(zobj, "level");
+            // if      (lvl == "red")    zone.level = ZONE_RED;
+            // else if (lvl == "yellow") zone.level = ZONE_YELLOW;
+            // else                      zone.level = ZONE_GREEN;
             std::string lvl = getVal(zobj, "level");
+
+            // cắt tới dấu phẩy đầu tiên
+            size_t commaPos = lvl.find(",");
+            if (commaPos != std::string::npos)
+                lvl = lvl.substr(0, commaPos);
+
+            // trim lại
+            lvl = trim(lvl);
+
             if      (lvl == "red")    zone.level = ZONE_RED;
             else if (lvl == "yellow") zone.level = ZONE_YELLOW;
+            else if (lvl == "green")  zone.level = ZONE_GREEN;
             else                      zone.level = ZONE_GREEN;
 
             // points [[x,y],[x,y],...]
@@ -150,6 +164,39 @@ int zone_load_config(const char *jsonPath,
     }
 
     return 0;
+}
+
+ZoneLevel_t zone_get_level(int chnId, int x, int y)
+{
+    for (auto &cz : g_ChnZones) {
+        if (cz.chnId != chnId) continue;
+
+        ZoneLevel_t best = ZONE_GREEN;
+        bool hit = false;
+
+        for (auto &zone : cz.zones) {
+            if (zone.points.empty()) continue;
+
+            double inside = cv::pointPolygonTest(zone.points, cv::Point2f((float)x, (float)y), false);
+            if (inside >= 0) {
+                hit = true;
+
+                // ưu tiên RED > YELLOW > GREEN
+                if (zone.level == ZONE_RED) {
+                    return ZONE_RED;
+                } else if (zone.level == ZONE_YELLOW) {
+                    best = ZONE_YELLOW;
+                } else if (zone.level == ZONE_GREEN && best != ZONE_YELLOW) {
+                    best = ZONE_GREEN;
+                }
+            }
+        }
+
+        if (hit) return best;
+        return ZONE_GREEN;  // ngoài mọi vùng thì coi như xanh
+    }
+
+    return ZONE_GREEN;
 }
 
 void zone_apply_overlay(cv::Mat &cell, int chnId)

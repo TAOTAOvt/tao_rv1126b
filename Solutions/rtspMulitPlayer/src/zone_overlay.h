@@ -31,4 +31,6 @@ int  zone_load_config(const char *jsonPath,
                       int cellW, int cellH,
                       float scaleX, float scaleY);
 void zone_apply_overlay(cv::Mat &cell, int chnId);
+
+ZoneLevel_t zone_get_level(int chnId, int x, int y);
 void zone_free();

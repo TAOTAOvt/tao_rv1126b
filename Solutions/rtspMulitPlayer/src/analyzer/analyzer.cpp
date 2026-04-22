@@ -14,18 +14,67 @@
 using namespace cv;
 
 
-static Scalar colorArray[10]={
-    Scalar(0, 0, 255, 255),
-    Scalar(0, 255, 0, 255),
-    Scalar(139,0,0,255),
-    Scalar(0,100,0,255),
-    Scalar(0,139,139,255),
-    Scalar(0,206,209,255),
-    Scalar(255,127,0,255),
-    Scalar(72,61,139,255),
-    Scalar(0,255,0,255),
-    Scalar(0,0,255,255),
+// static Scalar colorArray[10]={
+//     Scalar(0, 0, 255, 255),
+//     Scalar(0, 255, 0, 255),
+//     Scalar(139,0,0,255),
+//     Scalar(0,100,0,255),
+//     Scalar(0,139,139,255),
+//     Scalar(0,206,209,255),
+//     Scalar(255,127,0,255),
+//     Scalar(72,61,139,255),
+//     Scalar(0,255,0,255),
+//     Scalar(0,0,255,255),
+// };
+
+enum BoxColor : unsigned char {
+    BOX_GREEN  = 0,
+    BOX_YELLOW = 1,
+    BOX_RED    = 2,
+    BOX_GRAY   = 3
 };
+
+static Scalar colorArray[4] = {
+    Scalar(0, 180, 0),     // green  (BGR)
+    Scalar(0, 220, 220),   // yellow
+    Scalar(0, 0, 255),     // red
+    Scalar(128, 128, 128)  // gray
+};
+
+static unsigned char pick_box_color_by_zone(int chn, int x1, int y1, int x2, int y2)
+{
+    // Lấy 5 điểm kiểm tra: 4 góc + tâm
+    cv::Point pts[5] = {
+        cv::Point(x1, y1),
+        cv::Point(x2, y1),
+        cv::Point(x1, y2),
+        cv::Point(x2, y2),
+        cv::Point((x1 + x2) / 2, (y1 + y2) / 2)
+    };
+
+    bool hitRed = false;
+    bool hitYellow = false;
+    bool hitGreen = false;
+
+    for (int i = 0; i < 5; ++i) {
+        ZoneLevel_t lvl = zone_get_level(chn, pts[i].x, pts[i].y);  
+        // hàm này cần có trong zone_overlay / zones
+
+        if (lvl == ZONE_RED) {
+            hitRed = true;
+            break;
+        } else if (lvl == ZONE_YELLOW) {
+            hitYellow = true;
+        } else if (lvl == ZONE_GREEN) {
+            hitGreen = true;
+        }
+    }
+
+    if (hitRed)    return BOX_RED;
+    if (hitYellow) return BOX_YELLOW;
+    if (hitGreen)  return BOX_GREEN;
+    return BOX_GRAY;
+}
 static int plot_one_box(Mat src, int x1, int x2, int y1, int y2, char *label, char colour)
 {
     int tl = round(0.002 * (src.rows + src.cols) / 2) + 1;
@@ -43,7 +92,8 @@ static int plot_one_box(Mat src, int x1, int x2, int y1, int y2, char *label, ch
     return 0;
 }
 
-static void paint_algorithm_result_scaled(Mat image, ChnResult_t result, float scaleX, float scaleY)
+// static void paint_algorithm_result_scaled(Mat image, ChnResult_t result, float scaleX, float scaleY)
+static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t result, float scaleX, float scaleY)
 {
     char text[256];
     for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++) {
@@ -65,7 +115,9 @@ static void paint_algorithm_result_scaled(Mat image, ChnResult_t result, float s
             y2 = std::max(0, std::min(y2, image.rows - 1));
 
             sprintf(text, "%s %.1f%%", det->name, det->prop * 100);
-            plot_one_box(image, x1, x2, y1, y2, text, j % 10);
+            // plot_one_box(image, x1, x2, y1, y2, text, j % 10);
+            unsigned char boxColor = pick_box_color_by_zone(chnId, x1, y1, x2, y2);
+            plot_one_box(image, x1, x2, y1, y2, text, boxColor);
         }
     }
 }
@@ -260,9 +312,8 @@ static void *imgDisplay_thread(void *para)
                 pthread_rwlock_unlock(&pVideoObj->imgLock);
 
                 // Vẽ BBox sau khi unlock (không block capture thread)
-                paint_algorithm_result_scaled(cell, result, scaleX, scaleY);
-
                 zone_apply_overlay(cell, i);
+                paint_algorithm_result_scaled(cell, i, result, scaleX, scaleY);
 
                 char txt[16];
                 snprintf(txt, sizeof(txt), "CH%d", i);

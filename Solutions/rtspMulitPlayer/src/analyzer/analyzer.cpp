@@ -1,3 +1,4 @@
+
 //=====================  C++  =====================
 #include <string>
 #include <list>
@@ -11,21 +12,18 @@
 #include "../zone_overlay.h"
 #include "analyzer.h"
 
+#include <fcntl.h>   // open
+#include <unistd.h>  // write, close
+
+static volatile bool g_redDetected = false;
+static Scalar colorArray[4] = {
+    Scalar(0, 180, 0),
+    Scalar(0, 220, 220),
+    Scalar(0, 0, 255),
+    Scalar(128, 128, 128)
+};
+
 using namespace cv;
-
-
-// static Scalar colorArray[10]={
-//     Scalar(0, 0, 255, 255),
-//     Scalar(0, 255, 0, 255),
-//     Scalar(139,0,0,255),
-//     Scalar(0,100,0,255),
-//     Scalar(0,139,139,255),
-//     Scalar(0,206,209,255),
-//     Scalar(255,127,0,255),
-//     Scalar(72,61,139,255),
-//     Scalar(0,255,0,255),
-//     Scalar(0,0,255,255),
-// };
 
 enum BoxColor : unsigned char {
     BOX_GREEN  = 0,
@@ -34,12 +32,59 @@ enum BoxColor : unsigned char {
     BOX_GRAY   = 3
 };
 
-static Scalar colorArray[4] = {
-    Scalar(0, 180, 0),     // green  (BGR)
-    Scalar(0, 220, 220),   // yellow
-    Scalar(0, 0, 255),     // red
-    Scalar(128, 128, 128)  // gray
-};
+static void gpio_write(const char *val)
+{
+    int fd = open("/sys/class/gpio/gpio178/value", O_WRONLY);
+    if (fd >= 0) { write(fd, val, 1); close(fd); }
+}
+
+static void *buzzer_thread(void *para)
+{
+    bool buzzerOn = false;
+    int  noPersonCount = 0;
+    const int OFF_DELAY = 1;  // 4 x 500ms = 2s mới tắt
+
+    while (1) {
+        bool detected = g_redDetected;
+        g_redDetected = false;  // reset, display set lại nếu vẫn có người
+
+        if (detected) {
+            noPersonCount = 0;
+            buzzerOn = true;
+        } else {
+            if (buzzerOn) {
+                noPersonCount++;
+                if (noPersonCount >= OFF_DELAY) {
+                    buzzerOn = false;
+                    noPersonCount = 0;
+                    gpio_write("0");
+                }
+            }
+        }
+
+        if (buzzerOn) {
+            gpio_write("1");
+            usleep(500000);  // bật 500ms
+            gpio_write("0");
+            usleep(500000);  // tắt 500ms
+        } else {
+            usleep(500000);  // nghỉ khi không active
+        }
+    }
+
+    gpio_write("0");
+    pthread_exit(NULL);
+}
+
+static void buzzer_init()
+{
+    pthread_t tid;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&tid, &attr, buzzer_thread, NULL);
+    pthread_attr_destroy(&attr);
+}
 
 static unsigned char pick_box_color_by_zone(int chn, int x1, int y1, int x2, int y2)
 {
@@ -91,63 +136,40 @@ static int plot_one_box(Mat src, int x1, int x2, int y1, int y2, char *label, ch
     putText(src, label, cv::Point(x1, y1 - 2), FONT_HERSHEY_SIMPLEX, (float)tl/3, cv::Scalar(255, 255, 255, 255), tf, 8);
     return 0;
 }
-
-// static void paint_algorithm_result_scaled(Mat image, ChnResult_t result, float scaleX, float scaleY)
 static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t result, float scaleX, float scaleY)
 {
     char text[256];
+    bool redZoneHit = false;  // <-- thêm
+
     for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++) {
         for (int j = 0; j < result.algoRes[algoIndex].resNumber; j++) {
             detect_result_t *det = &(result.algoRes[algoIndex].detect_Group.results[j]);
             if (det->prop < 0.4)
                 continue;
 
-            // Scale tọa độ bbox theo tỉ lệ resize
             int x1 = (int)(det->box.left   * scaleX);
             int y1 = (int)(det->box.top    * scaleY);
             int x2 = (int)(det->box.right  * scaleX);
             int y2 = (int)(det->box.bottom * scaleY);
 
-            // Clamp trong bounds của cell
             x1 = std::max(0, std::min(x1, image.cols - 1));
             y1 = std::max(0, std::min(y1, image.rows - 1));
             x2 = std::max(0, std::min(x2, image.cols - 1));
             y2 = std::max(0, std::min(y2, image.rows - 1));
 
             sprintf(text, "%s %.1f%%", det->name, det->prop * 100);
-            // plot_one_box(image, x1, x2, y1, y2, text, j % 10);
             unsigned char boxColor = pick_box_color_by_zone(chnId, x1, y1, x2, y2);
             plot_one_box(image, x1, x2, y1, y2, text, boxColor);
+
+            // Nếu box màu đỏ → có người trong vùng đỏ
+            if (boxColor == BOX_RED)
+                redZoneHit = true;  // <-- thêm
         }
     }
+    // Điều khiển còi
+    if (redZoneHit)
+        g_redDetected = true;
 }
-// static void paint_algorithm_result(Mat image, ChnResult_t result)
-// {
-//     // 把算法结果绘制在图像上
-//     char text[256];
-//     for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++){
-//         for (int j = 0; j < result.algoRes[algoIndex].resNumber; j++) {
-//             detect_result_t *det_result = &(result.algoRes[algoIndex].detect_Group.results[j]);
-//             if( det_result->prop < 0.4) {
-//                 continue;
-//             }
-            
-//             // 标出识别目标框
-//             sprintf(text, "%s %.1f%%", det_result->name, det_result->prop * 100);
-// #if 0
-//             printf("%s @ (%d %d %d %d) %f\n", det_result->name, det_result->box.left, det_result->box.top,
-//                    det_result->box.right, det_result->box.bottom, det_result->prop);
-// #endif
-//             int x1 = det_result->box.left;
-//             int y1 = det_result->box.top;
-//             int x2 = det_result->box.right;
-//             int y2 = det_result->box.bottom;
-//             // 标出识别目标定位标记
-//             plot_one_box(image, x1, x2, y1, y2, text, j%10);
-//         }
-//     }
-// }
-
 
 class Analyzer
 {
@@ -166,11 +188,6 @@ public:
     uint8_t* videoChannelData(vChnObject *pVideoObj, int &width, int &height);
     // 3.取某路[视频]通道的分析结果
     int32_t videoChannelAnalyRes(int chnId);
-
-    // --音频资源处理
-    // 1.更新某路[音频]通道数据
-    // 2.取某路[音频]通道数据地址
-    // 3.取某路[音频]通道的分析结果
     
 
     bool mAnalyzeThreadWorking;
@@ -580,6 +597,7 @@ int analyzer_init(int32_t maxChn)
     
     // 模型初始化
     algorithm_init();
+    buzzer_init();  // <-- thêm dòng này
 
     return 0;
 }

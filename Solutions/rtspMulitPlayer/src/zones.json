@@ -4,21 +4,39 @@
       "chnId": 0,
       "zones": [
         {
-          "id": 1, "label": "NGUY HIEM", "level": "red",
-          "points": [[100,100],[500,100],[500,400],[100,400]]
+          "id": 1,
+          "label": "NEAR",
+          "level": "red",
+          "color": [0, 0, 255],
+          "points": [[0, 720], [100, 480], [1180, 480], [1280, 720]]
         },
         {
-          "id": 2, "label": "CANH BAO", "level": "yellow",
-          "points": [[600,200],[900,200],[900,500],[600,500]]
+          "id": 2,
+          "label": "MID",
+          "level": "yellow",
+          "color": [0, 255, 255],
+          "points": [[100, 480], [200,240], [1080, 240], [1180, 480]]
         },
         {
-          "id": 3, "label": "AN TOAN", "level": "green",
-          "points": [[50,500],[400,500],[400,680],[50,680]]
+          "id": 3,
+          "label": "FAR",
+          "level": "green",
+          "color": [0, 255, 0],
+          "points": [[200,240], [300,0], [980,0], [1080,240]]
         }
       ]
     },
-    { "chnId": 1, "zones": [] },
-    { "chnId": 2, "zones": [] },
-    { "chnId": 3, "zones": [] }
+    {
+      "chnId": 1,
+      "zones": []
+    },
+    {
+      "chnId": 2,
+      "zones": []
+    },
+    {
+      "chnId": 3,
+      "zones": []
+    }
   ]
 }

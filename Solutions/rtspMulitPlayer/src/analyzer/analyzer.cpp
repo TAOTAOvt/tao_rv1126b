@@ -207,9 +207,11 @@ static void *imgDisplay_thread(void *para)
 
     float zoneScaleX = (float)cellW / 1280.0f;
     float zoneScaleY = (float)cellH / 720.0f;
-    zone_load_config("./zones.json",
-                    cellW, cellH,
-                    zoneScaleX, zoneScaleY);
+    // zone_load_config("./zones.json",
+    //                 cellW, cellH,
+    //                 zoneScaleX, zoneScaleY);
+    int zret = zone_load_config("./src/zones.json", cellW, cellH, zoneScaleX, zoneScaleY);
+    printf("[ZONE] load ret=%d\n", zret);
 
     cv::Mat canvas(outH, outW, CV_8UC3, cv::Scalar(0, 0, 0));
     cv::Mat noSignal_img = cv::imread("./noSignal.jpg", 1);

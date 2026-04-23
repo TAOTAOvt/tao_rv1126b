@@ -12,25 +12,94 @@
 #include "appSource.h"
 #include "camera/camera.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/videodev2.h>
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>
+
+
+
+// dinh dang camera
+static int force_v4l2_format(const char *dev, int width, int height)
+{
+    int fd = open(dev, O_RDWR);
+    if (fd < 0) {
+        perror("open video device failed");
+        return -1;
+    }
+
+    struct v4l2_format fmt;
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    fmt.fmt.pix_mp.width = width;
+    fmt.fmt.pix_mp.height = height;
+    fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
+    fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
+
+    if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
+        perror("VIDIOC_S_FMT failed");
+        close(fd);
+        return -1;
+    }
+
+    printf("[V4L2] %s -> %dx%d NV12 set ok\n", dev,
+           fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height);
+
+    close(fd);
+    return 0;
+}
+
 static void appSrc_Init(gpointer data)
 {
     SrcCfg_t *pSourceCfg = (SrcCfg_t *)data;
-    if(NULL == pSourceCfg){
-        return ;
-    }
-    if(pSourceCfg->videoDesc.bInited){
-        return ;
-    }
-    
+    if (NULL == pSourceCfg) return;
+    if (pSourceCfg->videoDesc.bInited) return;
+
     const char *str = pSourceCfg->loaction;
-    int camIndex = atoi(str+strlen(str)-2);
-    if(0 == mipicamera_init(camIndex, pSourceCfg->videoDesc.width, pSourceCfg->videoDesc.height, 0)){
+    int camIndex = atoi(str + strlen(str) - 2);
+
+    // Ép V4L2 format trước
+    if (force_v4l2_format(str,
+                          pSourceCfg->videoDesc.width,
+                          pSourceCfg->videoDesc.height) != 0) {
+        printf("[ERR] force_v4l2_format failed for %s\n", str);
+    }
+
+    if (0 == mipicamera_init(camIndex,
+                             pSourceCfg->videoDesc.width,
+                             pSourceCfg->videoDesc.height,
+                             0)) {
         mipicamera_set_format(camIndex, RK_FORMAT_YCbCr_420_SP);
         pSourceCfg->videoDesc.timestamp = 0;
-
         pSourceCfg->videoDesc.bInited = TRUE;
+        printf("[OK] camera init done: %s camIndex=%d\n", str, camIndex);
+    } else {
+        printf("[ERR] mipicamera_init failed: %s camIndex=%d\n", str, camIndex);
     }
 }
+
+// static void appSrc_Init(gpointer data)
+// {
+//     SrcCfg_t *pSourceCfg = (SrcCfg_t *)data;
+//     if(NULL == pSourceCfg){
+//         return ;
+//     }
+//     if(pSourceCfg->videoDesc.bInited){
+//         return ;
+//     }
+    
+//     const char *str = pSourceCfg->loaction;
+//     int camIndex = atoi(str+strlen(str)-2);
+//     if(0 == mipicamera_init(camIndex, pSourceCfg->videoDesc.width, pSourceCfg->videoDesc.height, 0)){
+//         mipicamera_set_format(camIndex, RK_FORMAT_YCbCr_420_SP);
+//         pSourceCfg->videoDesc.timestamp = 0;
+
+//         pSourceCfg->videoDesc.bInited = TRUE;
+//     }
+// }
 
 static void appSrc_unInit(gpointer data)
 {

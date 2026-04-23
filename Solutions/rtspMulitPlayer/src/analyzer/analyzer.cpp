@@ -16,6 +16,8 @@
 #include <unistd.h>  // write, close
 
 static volatile bool g_redDetected = false;
+static volatile bool g_redForDisplay[4]    = {false, false, false, false};
+static volatile bool g_yellowForDisplay[4] = {false, false, false, false};  // THÊM
 static Scalar colorArray[4] = {
     Scalar(0, 180, 0),
     Scalar(0, 220, 220),
@@ -140,11 +142,12 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
 {
     char text[256];
     bool redZoneHit = false;  // <-- thêm
+    bool yellowZoneHit = false;  // THÊM
 
     for (int algoIndex = 0; algoIndex < ALGOMAXNUM; algoIndex++) {
         for (int j = 0; j < result.algoRes[algoIndex].resNumber; j++) {
             detect_result_t *det = &(result.algoRes[algoIndex].detect_Group.results[j]);
-            if (det->prop < 0.4)
+            if (det->prop < 0.3)
                 continue;
 
             int x1 = (int)(det->box.left   * scaleX);
@@ -164,11 +167,22 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
             // Nếu box màu đỏ → có người trong vùng đỏ
             if (boxColor == BOX_RED)
                 redZoneHit = true;  // <-- thêm
+            if (boxColor == BOX_YELLOW) 
+                yellowZoneHit = true;  // THÊM
         }
     }
     // Điều khiển còi
     if (redZoneHit)
+    {
         g_redDetected = true;
+        g_redForDisplay[chnId] = true;       // THÊM MỚI cho display
+    }
+
+    if (yellowZoneHit)
+    {
+        g_yellowForDisplay[chnId] = true;         // THÊM
+    }                                             //
+
 }
 
 class Analyzer
@@ -266,6 +280,7 @@ static void *imgDisplay_thread(void *para)
     Analyzer *pSelf = (Analyzer *)para;
 
     int screenW, screenH;
+    int flashTick = 0;
     disp_init(&screenW, &screenH);
     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
 
@@ -332,9 +347,14 @@ static void *imgDisplay_thread(void *para)
                 zone_apply_overlay(cell, i);
                 paint_algorithm_result_scaled(cell, i, result, scaleX, scaleY);
 
-                char txt[16];
-                snprintf(txt, sizeof(txt), "CH%d", i);
-                cv::putText(cell, txt, cv::Point(20, 40),
+                // char txt[16];
+                // snprintf(txt, sizeof(txt), "CH%d", i);
+                // cv::putText(cell, txt, cv::Point(20, 40),
+                //             cv::FONT_HERSHEY_SIMPLEX, 1.0,
+                //             cv::Scalar(0, 255, 255), 2);
+
+                const char *chLabels[4] = {"Foward", "Backward", "Left", "Right"};
+                cv::putText(cell, chLabels[i], cv::Point(20, 40),
                             cv::FONT_HERSHEY_SIMPLEX, 1.0,
                             cv::Scalar(0, 255, 255), 2);
                 drawn = true;
@@ -347,6 +367,38 @@ static void *imgDisplay_thread(void *para)
             }
         }
 
+        flashTick++;
+
+        for (int i = 0; i < 4; i++) {
+            bool hasRed    = g_redForDisplay[i];
+            bool hasYellow = g_yellowForDisplay[i];
+
+            if (!hasRed && !hasYellow) continue;
+
+            g_redForDisplay[i]    = false;
+            g_yellowForDisplay[i] = false;
+
+            // Blink: 8 tick sáng / 8 tick tắt (~30fps → ~4 lần/giây)
+            if ((flashTick / 8) % 2 == 0) continue;  // tick tắt → bỏ qua, không vẽ overlay
+
+            int fx = (i % 2) * cellW;
+            int fy = (i / 2) * cellH;
+            cv::Mat cell = canvas(cv::Rect(fx, fy, cellW, cellH));
+
+            if (hasRed) {
+                cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 0, 160));
+                cv::addWeighted(cell, 0.72, ov, 0.28, 0, cell);
+                cv::rectangle(cell, cv::Point(3, 3),
+                            cv::Point(cellW - 4, cellH - 4),
+                            cv::Scalar(0, 0, 255), 5);
+            } else {
+                cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 160, 220));
+                cv::addWeighted(cell, 0.78, ov, 0.22, 0, cell);
+                cv::rectangle(cell, cv::Point(3, 3),
+                            cv::Point(cellW - 4, cellH - 4),
+                            cv::Scalar(0, 200, 255), 4);
+            }
+        }
         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
 
         // 15ms ~ 66fps -> quá dày

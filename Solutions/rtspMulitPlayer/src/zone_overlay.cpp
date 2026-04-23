@@ -148,13 +148,13 @@ int zone_load_config(const char *jsonPath,
         for (auto &zone : cz.zones) {
             cv::Scalar col = zoneColor(zone.level);
             std::vector<std::vector<cv::Point>> pts = {zone.points};
-            cv::fillPoly(cz.overlayBGR, pts, col * 0.6);
+            // cv::fillPoly(cz.overlayBGR, pts, col * 0.6);
             cv::polylines(cz.overlayBGR, pts, true, col, 2, cv::LINE_AA);
             cv::Rect bbox = cv::boundingRect(zone.points);
-            cv::putText(cz.overlayBGR, zone.label,
-                        cv::Point(bbox.x + 4, bbox.y + 20),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.55,
-                        cv::Scalar(255,255,255), 1, cv::LINE_AA);
+            // cv::putText(cz.overlayBGR, zone.label,
+            //             cv::Point(bbox.x + 4, bbox.y + 20),
+            //             cv::FONT_HERSHEY_SIMPLEX, 0.55,
+            //             cv::Scalar(255,255,255), 1, cv::LINE_AA);
         }
         cz.cacheReady = true;
         printf("[ZONE] chnId=%d loaded %zu zones\n", cz.chnId, cz.zones.size());

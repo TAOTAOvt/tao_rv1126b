@@ -286,26 +286,15 @@ static void *imgDisplay_thread(void *para)
 
     const int outW = 1280;
     const int outH = 800;
+    const int cellW = outW / 2;
+    const int cellH = outH / 2;
 
-    struct CellDef {
-        int chnId;
-        int x, y, w, h;
-        const char *label;
-    };
-
-    static const CellDef cells[4] = {
-        { 1,   0,   0, 400, 800, "Backward" },
-        { 2, 400,   0, 480, 400, "Left"     },
-        { 3, 400, 400, 480, 400, "Right"    },
-        { 0, 880,   0, 400, 800, "Forward"  },
-    };
-
-    const int zoneW = 400;
-    const int zoneH = 800;
-    float zoneScaleX = (float)zoneW / 1280.0f;
-    float zoneScaleY = (float)zoneH / 720.0f;
-
-    int zret = zone_load_config("./src/zones.json", zoneW, zoneH, zoneScaleX, zoneScaleY);
+    float zoneScaleX = (float)cellW / 1280.0f;
+    float zoneScaleY = (float)cellH / 720.0f;
+    // zone_load_config("./zones.json",
+    //                 cellW, cellH,
+    //                 zoneScaleX, zoneScaleY);
+    int zret = zone_load_config("./src/zones.json", cellW, cellH, zoneScaleX, zoneScaleY);
     printf("[ZONE] load ret=%d\n", zret);
 
     cv::Mat canvas(outH, outW, CV_8UC3, cv::Scalar(0, 0, 0));
@@ -313,9 +302,9 @@ static void *imgDisplay_thread(void *para)
     cv::Mat noSignal_cell;
 
     if (!noSignal_img.empty()) {
-        cv::resize(noSignal_img, noSignal_cell, cv::Size(400, 400));
+        cv::resize(noSignal_img, noSignal_cell, cv::Size(cellW, cellH));
     } else {
-        noSignal_cell = cv::Mat(400, 400, CV_8UC3, cv::Scalar(0, 0, 0));
+        noSignal_cell = cv::Mat(cellH, cellW, CV_8UC3, cv::Scalar(0, 0, 0));
     }
 
     pSelf->mDisplayThreadWorking = true;
@@ -326,275 +315,100 @@ static void *imgDisplay_thread(void *para)
             break;
         }
 
-        canvas.setTo(cv::Scalar(0, 0, 0));
+        for (int i = 0; i < pSelf->mMaxChnNum && i < 4; i++) {
+        int x = (i % 2) * cellW;
+        int y = (i / 2) * cellH;
+        cv::Mat cell = canvas(cv::Rect(x, y, cellW, cellH));
 
-        for (int idx = 0; idx < 4; idx++) {
-            const CellDef &cd = cells[idx];
-            cv::Mat cell = canvas(cv::Rect(cd.x, cd.y, cd.w, cd.h));
+        vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
+        bool drawn = false;
 
-            vChnObject *pVideoObj = pSelf->getVideoChnObject(cd.chnId);
-            bool drawn = false;
+        if (pVideoObj) {
+            pthread_rwlock_rdlock(&pVideoObj->imgLock);
 
-            if (pVideoObj) {
-                pthread_rwlock_rdlock(&pVideoObj->imgLock);
+            if (!pVideoObj->image.empty()) {
+                // Lưu size gốc trước khi resize (để tính scale)
+                float scaleX = (float)cellW / pVideoObj->image.cols;
+                float scaleY = (float)cellH / pVideoObj->image.rows;
 
-                if (!pVideoObj->image.empty()) {
-                    float scaleX = (float)cd.w / pVideoObj->image.cols;
-                    float scaleY = (float)cd.h / pVideoObj->image.rows;
-
-                    // cv::resize(pVideoObj->image, cell, cv::Size(cd.w, cd.h), 0, 0, cv::INTER_LINEAR);
-                    // Xoay output từng frame
-                    
-                    cv::Mat tmp;
-                    cv::Mat drawTmp;
-
-                    cv::resize(pVideoObj->image, tmp, cv::Size(cd.w, cd.h), 0, 0, cv::INTER_LINEAR);
-
-                    ChnResult_t result;
-                    memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
-
-                    pthread_rwlock_unlock(&pVideoObj->imgLock);
-
-                    // đưa về size zone chuẩn để vẽ zone + bbox
-                    cv::resize(tmp, drawTmp, cv::Size(zoneW, zoneH), 0, 0, cv::INTER_LINEAR);
-
-                    float drawScaleX = (float)zoneW / pVideoObj->image.cols;
-                    float drawScaleY = (float)zoneH / pVideoObj->image.rows;
-
-                    zone_apply_overlay(drawTmp, cd.chnId);
-                    paint_algorithm_result_scaled(drawTmp, cd.chnId, result, drawScaleX, drawScaleY);
-
-                    // đưa lại về size cell
-                    cv::resize(drawTmp, tmp, cv::Size(cd.w, cd.h), 0, 0, cv::INTER_LINEAR);
-
-                    // xoay cả ảnh + zone + bbox
-                    switch (cd.chnId)
-                    {
-                        case 0:
-                            cv::rotate(tmp, tmp, cv::ROTATE_90_CLOCKWISE);
-                            break;
-                        case 1:
-                            cv::rotate(tmp, tmp, cv::ROTATE_90_COUNTERCLOCKWISE);
-                            break;
-                        case 2:
-                            break;
-                        case 3:
-                            cv::rotate(tmp, tmp, cv::ROTATE_180);
-                            break;
-                    }
-
-                    if (tmp.cols != cd.w || tmp.rows != cd.h) {
-                        cv::resize(tmp, tmp, cv::Size(cd.w, cd.h), 0, 0, cv::INTER_LINEAR);
-                    }
-
-                    tmp.copyTo(cell);
-
-                    // ChnResult_t result;
-                    // memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
-
-                    // pthread_rwlock_unlock(&pVideoObj->imgLock);
-
-                    // // Chỉ apply zone cho ô 400x800 để không crash addWeighted
-                    // if (cd.w == zoneW && cd.h == zoneH) {
-                    //     zone_apply_overlay(cell, cd.chnId);
-                    // }
-
-                    // paint_algorithm_result_scaled(cell, cd.chnId, result, scaleX, scaleY);
-
-                    cv::putText(cell, cd.label, cv::Point(20, 40),
-                                cv::FONT_HERSHEY_SIMPLEX, 1.0,
-                                cv::Scalar(0, 255, 255), 2);
-
-                    drawn = true;
+                if (pVideoObj->image.cols == cellW && pVideoObj->image.rows == cellH) {
+                    pVideoObj->image.copyTo(cell);
                 } else {
-                    pthread_rwlock_unlock(&pVideoObj->imgLock);
+                    cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH), 0, 0, cv::INTER_LINEAR);
                 }
-            }
 
+                // Copy result trong lock
+                ChnResult_t result;
+                memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
+
+                pthread_rwlock_unlock(&pVideoObj->imgLock);
+
+                // Vẽ BBox sau khi unlock (không block capture thread)
+                zone_apply_overlay(cell, i);
+                paint_algorithm_result_scaled(cell, i, result, scaleX, scaleY);
+
+                // char txt[16];
+                // snprintf(txt, sizeof(txt), "CH%d", i);
+                // cv::putText(cell, txt, cv::Point(20, 40),
+                //             cv::FONT_HERSHEY_SIMPLEX, 1.0,
+                //             cv::Scalar(0, 255, 255), 2);
+
+                const char *chLabels[4] = {"Foward", "Backward", "Left", "Right"};
+                cv::putText(cell, chLabels[i], cv::Point(20, 40),
+                            cv::FONT_HERSHEY_SIMPLEX, 1.0,
+                            cv::Scalar(0, 255, 255), 2);
+                drawn = true;
+            } else {
+                pthread_rwlock_unlock(&pVideoObj->imgLock);
+            }
+        }
             if (!drawn) {
-                cv::Mat ns;
-                cv::resize(noSignal_cell, ns, cv::Size(cd.w, cd.h));
-                ns.copyTo(cell);
+                noSignal_cell.copyTo(cell);
             }
         }
 
         flashTick++;
 
-        for (int idx = 0; idx < 4; idx++) {
-            const CellDef &cd = cells[idx];
-
-            bool hasRed    = g_redForDisplay[cd.chnId];
-            bool hasYellow = g_yellowForDisplay[cd.chnId];
+        for (int i = 0; i < 4; i++) {
+            bool hasRed    = g_redForDisplay[i];
+            bool hasYellow = g_yellowForDisplay[i];
 
             if (!hasRed && !hasYellow) continue;
 
-            g_redForDisplay[cd.chnId]    = false;
-            g_yellowForDisplay[cd.chnId] = false;
+            g_redForDisplay[i]    = false;
+            g_yellowForDisplay[i] = false;
 
-            if ((flashTick / 8) % 2 == 0) continue;
+            // Blink: 8 tick sáng / 8 tick tắt (~30fps → ~4 lần/giây)
+            if ((flashTick / 8) % 2 == 0) continue;  // tick tắt → bỏ qua, không vẽ overlay
 
-            cv::Mat cell = canvas(cv::Rect(cd.x, cd.y, cd.w, cd.h));
-            cv::Mat cellClone = cell.clone();
+            int fx = (i % 2) * cellW;
+            int fy = (i / 2) * cellH;
+            cv::Mat cell = canvas(cv::Rect(fx, fy, cellW, cellH));
 
             if (hasRed) {
-                cv::Mat ov(cellClone.rows, cellClone.cols, CV_8UC3, cv::Scalar(0, 0, 160));
-                cv::addWeighted(cellClone, 0.72, ov, 0.28, 0, cellClone);
-                cellClone.copyTo(cell);
+                cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 0, 160));
+                cv::addWeighted(cell, 0.72, ov, 0.28, 0, cell);
                 cv::rectangle(cell, cv::Point(3, 3),
-                              cv::Point(cd.w - 4, cd.h - 4),
-                              cv::Scalar(0, 0, 255), 5);
+                            cv::Point(cellW - 4, cellH - 4),
+                            cv::Scalar(0, 0, 255), 5);
             } else {
-                cv::Mat ov(cellClone.rows, cellClone.cols, CV_8UC3, cv::Scalar(0, 160, 220));
-                cv::addWeighted(cellClone, 0.78, ov, 0.22, 0, cellClone);
-                cellClone.copyTo(cell);
+                cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 160, 220));
+                cv::addWeighted(cell, 0.78, ov, 0.22, 0, cell);
                 cv::rectangle(cell, cv::Point(3, 3),
-                              cv::Point(cd.w - 4, cd.h - 4),
-                              cv::Scalar(0, 200, 255), 4);
+                            cv::Point(cellW - 4, cellH - 4),
+                            cv::Scalar(0, 200, 255), 4);
             }
         }
-
         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
-        msleep(33);
+
+        // 15ms ~ 66fps -> quá dày
+        msleep(33);   // ~30fps
+        // cần giảm tiếp thì msleep(50); // ~20fps
     }
 
     disp_exit();
     pthread_exit(NULL);
 }
-
-// static void *imgDisplay_thread(void *para)
-// {
-//     Analyzer *pSelf = (Analyzer *)para;
-
-//     int screenW, screenH;
-//     int flashTick = 0;
-//     disp_init(&screenW, &screenH);
-//     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
-
-//     const int outW = 1280;
-//     const int outH = 800;
-//     const int cellW = outW / 2;
-//     const int cellH = outH / 2;
-
-//     float zoneScaleX = (float)cellW / 1280.0f;
-//     float zoneScaleY = (float)cellH / 720.0f;
-//     // zone_load_config("./zones.json",
-//     //                 cellW, cellH,
-//     //                 zoneScaleX, zoneScaleY);
-//     int zret = zone_load_config("./src/zones.json", cellW, cellH, zoneScaleX, zoneScaleY);
-//     printf("[ZONE] load ret=%d\n", zret);
-
-//     cv::Mat canvas(outH, outW, CV_8UC3, cv::Scalar(0, 0, 0));
-//     cv::Mat noSignal_img = cv::imread("./noSignal.jpg", 1);
-//     cv::Mat noSignal_cell;
-
-//     if (!noSignal_img.empty()) {
-//         cv::resize(noSignal_img, noSignal_cell, cv::Size(cellW, cellH));
-//     } else {
-//         noSignal_cell = cv::Mat(cellH, cellW, CV_8UC3, cv::Scalar(0, 0, 0));
-//     }
-
-//     pSelf->mDisplayThreadWorking = true;
-
-//     while (1) {
-//         if (!pSelf->mDisplayThreadWorking) {
-//             msleep(5);
-//             break;
-//         }
-
-//         for (int i = 0; i < pSelf->mMaxChnNum && i < 4; i++) {
-//         int x = (i % 2) * cellW;
-//         int y = (i / 2) * cellH;
-//         cv::Mat cell = canvas(cv::Rect(x, y, cellW, cellH));
-
-//         vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-//         bool drawn = false;
-
-//         if (pVideoObj) {
-//             pthread_rwlock_rdlock(&pVideoObj->imgLock);
-
-//             if (!pVideoObj->image.empty()) {
-//                 // Lưu size gốc trước khi resize (để tính scale)
-//                 float scaleX = (float)cellW / pVideoObj->image.cols;
-//                 float scaleY = (float)cellH / pVideoObj->image.rows;
-
-//                 if (pVideoObj->image.cols == cellW && pVideoObj->image.rows == cellH) {
-//                     pVideoObj->image.copyTo(cell);
-//                 } else {
-//                     cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH), 0, 0, cv::INTER_LINEAR);
-//                 }
-
-//                 // Copy result trong lock
-//                 ChnResult_t result;
-//                 memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
-
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-
-//                 // Vẽ BBox sau khi unlock (không block capture thread)
-//                 zone_apply_overlay(cell, i);
-//                 paint_algorithm_result_scaled(cell, i, result, scaleX, scaleY);
-
-//                 // char txt[16];
-//                 // snprintf(txt, sizeof(txt), "CH%d", i);
-//                 // cv::putText(cell, txt, cv::Point(20, 40),
-//                 //             cv::FONT_HERSHEY_SIMPLEX, 1.0,
-//                 //             cv::Scalar(0, 255, 255), 2);
-
-//                 const char *chLabels[4] = {"Foward", "Backward", "Left", "Right"};
-//                 cv::putText(cell, chLabels[i], cv::Point(20, 40),
-//                             cv::FONT_HERSHEY_SIMPLEX, 1.0,
-//                             cv::Scalar(0, 255, 255), 2);
-//                 drawn = true;
-//             } else {
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-//             }
-//         }
-//             if (!drawn) {
-//                 noSignal_cell.copyTo(cell);
-//             }
-//         }
-
-//         flashTick++;
-
-//         for (int i = 0; i < 4; i++) {
-//             bool hasRed    = g_redForDisplay[i];
-//             bool hasYellow = g_yellowForDisplay[i];
-
-//             if (!hasRed && !hasYellow) continue;
-
-//             g_redForDisplay[i]    = false;
-//             g_yellowForDisplay[i] = false;
-
-//             // Blink: 8 tick sáng / 8 tick tắt (~30fps → ~4 lần/giây)
-//             if ((flashTick / 8) % 2 == 0) continue;  // tick tắt → bỏ qua, không vẽ overlay
-
-//             int fx = (i % 2) * cellW;
-//             int fy = (i / 2) * cellH;
-//             cv::Mat cell = canvas(cv::Rect(fx, fy, cellW, cellH));
-
-//             if (hasRed) {
-//                 cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 0, 160));
-//                 cv::addWeighted(cell, 0.72, ov, 0.28, 0, cell);
-//                 cv::rectangle(cell, cv::Point(3, 3),
-//                             cv::Point(cellW - 4, cellH - 4),
-//                             cv::Scalar(0, 0, 255), 5);
-//             } else {
-//                 cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 160, 220));
-//                 cv::addWeighted(cell, 0.78, ov, 0.22, 0, cell);
-//                 cv::rectangle(cell, cv::Point(3, 3),
-//                             cv::Point(cellW - 4, cellH - 4),
-//                             cv::Scalar(0, 200, 255), 4);
-//             }
-//         }
-//         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
-
-//         // 15ms ~ 66fps -> quá dày
-//         msleep(33);   // ~30fps
-//         // cần giảm tiếp thì msleep(50); // ~20fps
-//     }
-
-//     disp_exit();
-//     pthread_exit(NULL);
-// }
 
 Analyzer *Analyzer::m_pSelf = NULL;
 Analyzer::Analyzer(int32_t maxChn) :

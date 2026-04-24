@@ -11,6 +11,7 @@
 #include "display.h"
 #include "../zone_overlay.h"
 #include "analyzer.h"
+#include "red_capture_sender.h"
 
 #include <fcntl.h>   // open
 #include <unistd.h>  // write, close
@@ -38,6 +39,53 @@ static void gpio_write(const char *val)
 {
     int fd = open("/sys/class/gpio/gpio178/value", O_WRONLY);
     if (fd >= 0) { write(fd, val, 1); close(fd); }
+}
+
+static void putTextRotated(cv::Mat &dst, const std::string &text,
+                            cv::Point origin, double angle,
+                            double fontScale, cv::Scalar color, int thickness)
+{
+    int baseline = 0;
+    cv::Size textSize = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX,
+                                        fontScale, thickness, &baseline);
+    int pad = 10;
+    cv::Mat textMat(textSize.height + baseline + pad*2,
+                    textSize.width  + pad*2,
+                    CV_8UC3, cv::Scalar(0, 0, 0));
+
+    cv::putText(textMat, text, cv::Point(pad, textSize.height + pad),
+                cv::FONT_HERSHEY_SIMPLEX, fontScale, color, thickness);
+
+    // ---- FIX: tính output size theo góc xoay ----
+    double rad = angle * CV_PI / 180.0;
+    double cosA = std::abs(std::cos(rad));
+    double sinA = std::abs(std::sin(rad));
+    int newW = (int)(textMat.cols * cosA + textMat.rows * sinA);
+    int newH = (int)(textMat.cols * sinA + textMat.rows * cosA);
+
+    cv::Point2f center(textMat.cols / 2.0f, textMat.rows / 2.0f);
+    cv::Mat rot = cv::getRotationMatrix2D(center, angle, 1.0);
+
+    // Dịch chuyển để chữ không bị crop
+    rot.at<double>(0, 2) += (newW - textMat.cols) / 2.0;
+    rot.at<double>(1, 2) += (newH - textMat.rows) / 2.0;
+
+    cv::Mat rotated;
+    cv::warpAffine(textMat, rotated, rot, cv::Size(newW, newH));
+    // ---------------------------------------------
+
+    int x = origin.x - rotated.cols / 2;
+    int y = origin.y - rotated.rows / 2;
+
+    for (int r = 0; r < rotated.rows; r++) {
+        for (int c = 0; c < rotated.cols; c++) {
+            int dx = x + c, dy = y + r;
+            if (dx < 0 || dy < 0 || dx >= dst.cols || dy >= dst.rows) continue;
+            cv::Vec3b px = rotated.at<cv::Vec3b>(r, c);
+            if (px[0] || px[1] || px[2])
+                dst.at<cv::Vec3b>(dy, dx) = px;
+        }
+    }
 }
 
 static void *buzzer_thread(void *para)
@@ -167,6 +215,7 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
             // Nếu box màu đỏ → có người trong vùng đỏ
             if (boxColor == BOX_RED)
                 redZoneHit = true;  // <-- thêm
+                red_capture_push(chnId, image);
             if (boxColor == BOX_YELLOW) 
                 yellowZoneHit = true;  // THÊM
         }
@@ -294,10 +343,10 @@ static void *imgDisplay_thread(void *para)
     };
 
     static const CellDef cells[4] = {
-        { 1,   0,   0, 400, 800, "Backward" },
-        { 2, 400,   0, 480, 400, "Left"     },
-        { 3, 400, 400, 480, 400, "Right"    },
-        { 0, 880,   0, 400, 800, "Forward"  },
+        { 1,   0,   0, 400, 800, "Truoc" },
+        { 2, 400,   0, 480, 400, "Phai"     },
+        { 3, 400, 400, 480, 400, "Trai"    },
+        { 0, 880,   0, 400, 800, "Sau"  },
     };
 
     const int zoneW = 400;
@@ -371,39 +420,50 @@ static void *imgDisplay_thread(void *para)
                     switch (cd.chnId)
                     {
                         case 0:
-                            cv::rotate(tmp, tmp, cv::ROTATE_90_CLOCKWISE);
-                            break;
-                        case 1:
                             cv::rotate(tmp, tmp, cv::ROTATE_90_COUNTERCLOCKWISE);
+                            // cv::flip(tmp, tmp, 1); // lật trái phải
                             break;
+
+                        case 1:
+                            cv::rotate(tmp, tmp, cv::ROTATE_90_CLOCKWISE);
+                            cv::flip(tmp, tmp, 1); // lật trái phải
+
+                            break;
+
                         case 2:
+                            cv::flip(tmp, tmp, 1);
                             break;
+
                         case 3:
                             cv::rotate(tmp, tmp, cv::ROTATE_180);
+                            cv::flip(tmp, tmp, 1);
                             break;
                     }
-
                     if (tmp.cols != cd.w || tmp.rows != cd.h) {
                         cv::resize(tmp, tmp, cv::Size(cd.w, cd.h), 0, 0, cv::INTER_LINEAR);
                     }
 
                     tmp.copyTo(cell);
 
-                    // ChnResult_t result;
-                    // memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
 
-                    // pthread_rwlock_unlock(&pVideoObj->imgLock);
-
-                    // // Chỉ apply zone cho ô 400x800 để không crash addWeighted
-                    // if (cd.w == zoneW && cd.h == zoneH) {
-                    //     zone_apply_overlay(cell, cd.chnId);
-                    // }
-
-                    // paint_algorithm_result_scaled(cell, cd.chnId, result, scaleX, scaleY);
-
-                    cv::putText(cell, cd.label, cv::Point(20, 40),
-                                cv::FONT_HERSHEY_SIMPLEX, 1.0,
-                                cv::Scalar(0, 255, 255), 2);
+                    switch (cd.chnId) {
+                        case 0:  // Sau (400x800) — chữ xoay 90°, góc trên
+                            putTextRotated(cell, cd.label, cv::Point(20, 720), 90, 1.0,
+                                        cv::Scalar(0, 255, 255), 2);
+                            break;
+                        case 1:  // Truoc (400x800) — chữ xoay 90°, góc trên
+                            putTextRotated(cell, cd.label, cv::Point(20, 720), 90, 1.0,
+                                        cv::Scalar(0, 255, 255), 2);
+                            break;
+                        case 2:  // Phai (480x400) — chữ xoay 90°, góc trên
+                            putTextRotated(cell, cd.label, cv::Point(20,320), 90, 1.0,
+                                        cv::Scalar(0, 255, 255), 2);
+                            break;
+                        case 3:  // Trai (480x400) — chữ xoay 90°, góc trên
+                            putTextRotated(cell, cd.label, cv::Point(20,320), 90, 1.0,
+                                        cv::Scalar(0, 255, 255), 2);
+                            break;
+                        }
 
                     drawn = true;
                 } else {
@@ -422,6 +482,12 @@ static void *imgDisplay_thread(void *para)
 
         for (int idx = 0; idx < 4; idx++) {
             const CellDef &cd = cells[idx];
+
+            cv::rectangle(canvas,
+                        cv::Point(cd.x, cd.y),
+                        cv::Point(cd.x + cd.w - 1, cd.y + cd.h - 1),
+                        cv::Scalar(255, 100, 0),  // xanh biển BGR
+                        2);                        // độ dày, tăng nếu muốn dày hơn
 
             bool hasRed    = g_redForDisplay[cd.chnId];
             bool hasYellow = g_yellowForDisplay[cd.chnId];
@@ -460,141 +526,6 @@ static void *imgDisplay_thread(void *para)
     disp_exit();
     pthread_exit(NULL);
 }
-
-// static void *imgDisplay_thread(void *para)
-// {
-//     Analyzer *pSelf = (Analyzer *)para;
-
-//     int screenW, screenH;
-//     int flashTick = 0;
-//     disp_init(&screenW, &screenH);
-//     printf("disp_init: screenW=%d screenH=%d\n", screenW, screenH);
-
-//     const int outW = 1280;
-//     const int outH = 800;
-//     const int cellW = outW / 2;
-//     const int cellH = outH / 2;
-
-//     float zoneScaleX = (float)cellW / 1280.0f;
-//     float zoneScaleY = (float)cellH / 720.0f;
-//     // zone_load_config("./zones.json",
-//     //                 cellW, cellH,
-//     //                 zoneScaleX, zoneScaleY);
-//     int zret = zone_load_config("./src/zones.json", cellW, cellH, zoneScaleX, zoneScaleY);
-//     printf("[ZONE] load ret=%d\n", zret);
-
-//     cv::Mat canvas(outH, outW, CV_8UC3, cv::Scalar(0, 0, 0));
-//     cv::Mat noSignal_img = cv::imread("./noSignal.jpg", 1);
-//     cv::Mat noSignal_cell;
-
-//     if (!noSignal_img.empty()) {
-//         cv::resize(noSignal_img, noSignal_cell, cv::Size(cellW, cellH));
-//     } else {
-//         noSignal_cell = cv::Mat(cellH, cellW, CV_8UC3, cv::Scalar(0, 0, 0));
-//     }
-
-//     pSelf->mDisplayThreadWorking = true;
-
-//     while (1) {
-//         if (!pSelf->mDisplayThreadWorking) {
-//             msleep(5);
-//             break;
-//         }
-
-//         for (int i = 0; i < pSelf->mMaxChnNum && i < 4; i++) {
-//         int x = (i % 2) * cellW;
-//         int y = (i / 2) * cellH;
-//         cv::Mat cell = canvas(cv::Rect(x, y, cellW, cellH));
-
-//         vChnObject *pVideoObj = pSelf->getVideoChnObject(i);
-//         bool drawn = false;
-
-//         if (pVideoObj) {
-//             pthread_rwlock_rdlock(&pVideoObj->imgLock);
-
-//             if (!pVideoObj->image.empty()) {
-//                 // Lưu size gốc trước khi resize (để tính scale)
-//                 float scaleX = (float)cellW / pVideoObj->image.cols;
-//                 float scaleY = (float)cellH / pVideoObj->image.rows;
-
-//                 if (pVideoObj->image.cols == cellW && pVideoObj->image.rows == cellH) {
-//                     pVideoObj->image.copyTo(cell);
-//                 } else {
-//                     cv::resize(pVideoObj->image, cell, cv::Size(cellW, cellH), 0, 0, cv::INTER_LINEAR);
-//                 }
-
-//                 // Copy result trong lock
-//                 ChnResult_t result;
-//                 memcpy(&result, &pVideoObj->chnResult, sizeof(ChnResult_t));
-
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-
-//                 // Vẽ BBox sau khi unlock (không block capture thread)
-//                 zone_apply_overlay(cell, i);
-//                 paint_algorithm_result_scaled(cell, i, result, scaleX, scaleY);
-
-//                 // char txt[16];
-//                 // snprintf(txt, sizeof(txt), "CH%d", i);
-//                 // cv::putText(cell, txt, cv::Point(20, 40),
-//                 //             cv::FONT_HERSHEY_SIMPLEX, 1.0,
-//                 //             cv::Scalar(0, 255, 255), 2);
-
-//                 const char *chLabels[4] = {"Foward", "Backward", "Left", "Right"};
-//                 cv::putText(cell, chLabels[i], cv::Point(20, 40),
-//                             cv::FONT_HERSHEY_SIMPLEX, 1.0,
-//                             cv::Scalar(0, 255, 255), 2);
-//                 drawn = true;
-//             } else {
-//                 pthread_rwlock_unlock(&pVideoObj->imgLock);
-//             }
-//         }
-//             if (!drawn) {
-//                 noSignal_cell.copyTo(cell);
-//             }
-//         }
-
-//         flashTick++;
-
-//         for (int i = 0; i < 4; i++) {
-//             bool hasRed    = g_redForDisplay[i];
-//             bool hasYellow = g_yellowForDisplay[i];
-
-//             if (!hasRed && !hasYellow) continue;
-
-//             g_redForDisplay[i]    = false;
-//             g_yellowForDisplay[i] = false;
-
-//             // Blink: 8 tick sáng / 8 tick tắt (~30fps → ~4 lần/giây)
-//             if ((flashTick / 8) % 2 == 0) continue;  // tick tắt → bỏ qua, không vẽ overlay
-
-//             int fx = (i % 2) * cellW;
-//             int fy = (i / 2) * cellH;
-//             cv::Mat cell = canvas(cv::Rect(fx, fy, cellW, cellH));
-
-//             if (hasRed) {
-//                 cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 0, 160));
-//                 cv::addWeighted(cell, 0.72, ov, 0.28, 0, cell);
-//                 cv::rectangle(cell, cv::Point(3, 3),
-//                             cv::Point(cellW - 4, cellH - 4),
-//                             cv::Scalar(0, 0, 255), 5);
-//             } else {
-//                 cv::Mat ov(cell.size(), CV_8UC3, cv::Scalar(0, 160, 220));
-//                 cv::addWeighted(cell, 0.78, ov, 0.22, 0, cell);
-//                 cv::rectangle(cell, cv::Point(3, 3),
-//                             cv::Point(cellW - 4, cellH - 4),
-//                             cv::Scalar(0, 200, 255), 4);
-//             }
-//         }
-//         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
-
-//         // 15ms ~ 66fps -> quá dày
-//         msleep(33);   // ~30fps
-//         // cần giảm tiếp thì msleep(50); // ~20fps
-//     }
-
-//     disp_exit();
-//     pthread_exit(NULL);
-// }
 
 Analyzer *Analyzer::m_pSelf = NULL;
 Analyzer::Analyzer(int32_t maxChn) :
@@ -836,6 +767,7 @@ int analyzer_init(int32_t maxChn)
     // 模型初始化
     algorithm_init();
     buzzer_init();  // <-- thêm dòng này
+    red_capture_init("http://your-server/upload");
 
     return 0;
 }

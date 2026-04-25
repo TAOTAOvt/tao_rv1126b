@@ -35,6 +35,15 @@ enum BoxColor : unsigned char {
     BOX_GRAY   = 3
 };
 
+static std::string get_datetime_string()
+{
+    time_t now = time(nullptr);
+    struct tm *t = localtime(&now);
+    char buf[64];
+    strftime(buf, sizeof(buf), "%d/%m/%Y  %H:%M:%S", t);
+    return std::string(buf);
+}
+
 static void gpio_write(const char *val)
 {
     int fd = open("/sys/class/gpio/gpio178/value", O_WRONLY);
@@ -226,7 +235,22 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
     {
         g_redDetected = true;
         g_redForDisplay[chnId] = true;       // THÊM MỚI cho display
-        red_capture_push(chnId, image);  // ← ảnh lúc này có đủ tất cả box
+    // ===== KẾT THÚC =====
+
+        cv::Mat captureImg = image.clone();
+        std::string dt = get_datetime_string();   // ← Khai báo dt ở đây
+
+        // Vẽ datetime chỉ lên bản sao này (không ảnh hưởng đến màn hình)
+        cv::putText(captureImg, 
+                    dt,
+                    cv::Point(30, 50),                    // góc trên trái
+                    cv::FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    cv::Scalar(255, 255, 255),
+                    2,
+                    cv::LINE_AA);
+        red_capture_push(chnId, captureImg);
+        
     }
 
     if (yellowZoneHit)
@@ -466,6 +490,27 @@ static void *imgDisplay_thread(void *para)
                                         cv::Scalar(0, 255, 255), 2);
                             break;
                         }
+                    {
+                        std::string dt = get_datetime_string();
+                        switch (cd.chnId) {
+                            case 0:  // Sau 400x800, chữ xoay 90°
+                                putTextRotated(cell, dt, cv::Point(20, 560), 90, 0.6,
+                                            cv::Scalar(255, 255, 255), 1);
+                                break;
+                            case 1:  // Truoc 400x800, chữ xoay 90°
+                                putTextRotated(cell, dt, cv::Point(20, 560), 90, 0.6,
+                                            cv::Scalar(255, 255, 255), 1);
+                                break;
+                            case 2:  // Phai 480x400, chữ xoay 90°
+                                putTextRotated(cell, dt, cv::Point(20, 180), 90, 0.6,
+                                            cv::Scalar(255, 255, 255), 1);
+                                break;
+                            case 3:  // Trai 480x400, chữ xoay 90°
+                                putTextRotated(cell, dt, cv::Point(20, 180), 90, 0.6,
+                                            cv::Scalar(255, 255, 255), 1);
+                                break;
+                        }
+                    }
 
                     drawn = true;
                 } else {

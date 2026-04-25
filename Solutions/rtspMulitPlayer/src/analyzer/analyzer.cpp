@@ -213,9 +213,10 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
             plot_one_box(image, x1, x2, y1, y2, text, boxColor);
 
             // Nếu box màu đỏ → có người trong vùng đỏ
-            if (boxColor == BOX_RED)
+            if (boxColor == BOX_RED){
                 redZoneHit = true;  // <-- thêm
-                red_capture_push(chnId, image);
+                // red_capture_push(chnId, image);
+            }
             if (boxColor == BOX_YELLOW) 
                 yellowZoneHit = true;  // THÊM
         }
@@ -225,6 +226,7 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
     {
         g_redDetected = true;
         g_redForDisplay[chnId] = true;       // THÊM MỚI cho display
+        red_capture_push(chnId, image);  // ← ảnh lúc này có đủ tất cả box
     }
 
     if (yellowZoneHit)
@@ -767,8 +769,7 @@ int analyzer_init(int32_t maxChn)
     // 模型初始化
     algorithm_init();
     buzzer_init();  // <-- thêm dòng này
-    red_capture_init("http://your-server/upload");
-
+    red_capture_init("http://192.168.100.2:5000");
     return 0;
 }
 

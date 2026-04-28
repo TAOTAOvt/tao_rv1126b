@@ -16,8 +16,34 @@
 #include <fcntl.h>   // open
 #include <unistd.h>  // write, close
 
-#include <cstdlib>
-#include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+static std::string g_screenCapDir = "./captures_screen";
+static int g_screenCapIntervalMs = 500;
+static int g_screenCapTick = 0;
+
+static void ensure_dir(const std::string &dir)
+{
+    mkdir(dir.c_str(), 0755);
+}
+
+static std::string make_screen_capture_path()
+{
+    time_t now = time(nullptr);
+    struct tm *t = localtime(&now);
+
+    char buf[128];
+    strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", t);
+
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    int ms = ts.tv_nsec / 1000000;
+
+    ensure_dir(g_screenCapDir);
+
+    return g_screenCapDir + "/screen_" + std::string(buf) + "_" + std::to_string(ms) + ".jpg";
+}
 
 static volatile bool g_redDetected = false;
 static volatile bool g_redForDisplay[4]    = {false, false, false, false};
@@ -51,27 +77,6 @@ static void gpio_write(const char *val)
 {
     int fd = open("/sys/class/gpio/gpio178/value", O_WRONLY);
     if (fd >= 0) { write(fd, val, 1); close(fd); }
-}
-
-static uint64_t now_ms()
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
-
-static void play_warning_voice()
-{
-    static uint64_t lastPlay = 0;
-    uint64_t now = now_ms();
-
-    // file voice của m dài ~13s, nên tránh spam mở nhiều aplay
-    if (now - lastPlay < 15000)
-        return;
-
-    lastPlay = now;
-
-    system("aplay -D hw:0,0 /home/nano/warning_fixed.wav >/dev/null 2>&1 &");
 }
 
 static void putTextRotated(cv::Mat &dst, const std::string &text,
@@ -259,7 +264,6 @@ static void paint_algorithm_result_scaled(Mat image, int chnId, ChnResult_t resu
     {
         g_redDetected = true;
         g_redForDisplay[chnId] = true;       // THÊM MỚI cho display
-        play_warning_voice();
     // ===== KẾT THÚC =====
 
         cv::Mat captureImg = image.clone();
@@ -590,7 +594,18 @@ static void *imgDisplay_thread(void *para)
                               cv::Scalar(0, 200, 255), 4);
             }
         }
+        g_screenCapTick += 33;
 
+        if (g_screenCapTick >= g_screenCapIntervalMs) {
+            g_screenCapTick = 0;
+
+            cv::Mat screenShot = canvas.clone();
+
+            std::string path = make_screen_capture_path();
+            cv::imwrite(path, screenShot);
+
+            printf("[SCREEN CAPTURE] -> %s\n", path.c_str());
+        }
         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
         msleep(33);
     }

@@ -78,7 +78,7 @@ static void play_warning_voice()
 {
     static uint64_t lastPlay = 0;
     uint64_t now = now_ms();
-    if (now - lastPlay < 3200) return;
+    if (now - lastPlay < 15000) return;
     lastPlay = now;
 
     // Spawn thread riêng, không block display loop

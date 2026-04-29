@@ -121,6 +121,7 @@ set(custom_libs
     opencv_core 
     opencv_imgproc 
     opencv_imgcodecs
+    opencv_videoio
     #${GTK3_LIBRARIES} 
     #${GST1.0_LIBRARIES} 
     #${GST1.0_VIDEO_LIBRARIES} 

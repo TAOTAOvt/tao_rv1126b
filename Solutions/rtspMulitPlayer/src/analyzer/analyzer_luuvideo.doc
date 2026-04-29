@@ -78,7 +78,7 @@ static void play_warning_voice()
 {
     static uint64_t lastPlay = 0;
     uint64_t now = now_ms();
-    if (now - lastPlay < 3200) return;
+    if (now - lastPlay < 3300) return;
     lastPlay = now;
 
     // Spawn thread riêng, không block display loop
@@ -401,6 +401,9 @@ static void *imgAnalyze_thread(void *para)
 
 static void *imgDisplay_thread(void *para)
 {
+
+
+    
     Analyzer *pSelf = (Analyzer *)para;
 
     int screenW, screenH;
@@ -411,11 +414,42 @@ static void *imgDisplay_thread(void *para)
     const int outW = 1280;
     const int outH = 800;
 
+        // --- RECORD --- (dời xuống đây)
+    cv::VideoWriter recorder;
+    bool isRecording = false;
+    const double RECORD_FPS = 30.0;
+    const std::string RECORD_DIR = "/home/nano/recordings/";
+
+    auto make_record_filename = [&RECORD_DIR]() -> std::string {
+        time_t now = time(nullptr);
+        struct tm *t = localtime(&now);
+        char buf[64];
+        strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S.avi", t);
+        return RECORD_DIR + std::string(buf);
+    };
+
+    std::string recFile = make_record_filename();
+    recorder.open(recFile,
+              cv::VideoWriter::fourcc('M','J','P','G'),
+              20.0,
+              cv::Size(outW, outH),
+              true);
+
+    if (recorder.isOpened()) {
+        printf("[RECORD] Started AVI MJPG: %s\n", recFile.c_str());
+        isRecording = true;
+    } else {
+        printf("[RECORD] Failed to open recorder: %s\n", recFile.c_str());
+        isRecording = false;
+}
+
     struct CellDef {
         int chnId;
         int x, y, w, h;
         const char *label;
     };
+
+
 
     static const CellDef cells[4] = {
         { 1,   0,   0, 400, 800, "Truoc" },
@@ -615,9 +649,19 @@ static void *imgDisplay_thread(void *para)
             }
         }
 
+        if (isRecording && recorder.isOpened()) {
+            recorder.write(canvas);
+        }
+
+        
+
+
         disp_commit(canvas.data, canvas.cols, canvas.rows, HAL_TRANSFORM_ROT_270);
         msleep(33);
     }
+
+    if (recorder.isOpened())
+        recorder.release();
 
     disp_exit();
     pthread_exit(NULL);
